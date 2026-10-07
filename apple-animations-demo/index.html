@@ -66,6 +66,20 @@
     will-change: opacity, transform;
   }
 
+  /* Pinned multi-stage section */
+  .stages { height: 600vh; }
+  .stages .stick { position: sticky; top: 0; height: 100vh; display: grid; place-items: center; overflow: hidden; }
+  #cv2 { width: min(100vw, 110vh); transform: translateY(-6vh); }
+  .stage-text { position: absolute; left: 0; right: 0; bottom: 5vh; height: 12vh; text-align: center; pointer-events: none; }
+  .stage-text h2 {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: clamp(26px, 4.5vw, 52px); font-weight: 700; letter-spacing: -0.02em;
+    opacity: 0; will-change: opacity, transform;
+  }
+  .dots { position: absolute; right: 24px; top: 50%; transform: translateY(-50%); list-style: none; padding: 0; display: grid; gap: 12px; }
+  .dots li { width: 8px; height: 8px; border-radius: 50%; background: #3a3a3c; transition: background .3s, transform .3s; }
+  .dots li.on { background: #fff; transform: scale(1.4); }
+
   /* 3. Words that brighten as you scroll */
   .words { padding: 30vh 10vw; }
   .words p {
@@ -106,7 +120,7 @@
 </head>
 <body>
 <nav>
-  <a href="#hero">Overview</a><a href="#seq">Sequence</a><a href="#words">Text</a><a href="#cards">Reveal</a>
+  <a href="#hero">Overview</a><a href="#seq">Sequence</a><a href="#stages">Stages</a><a href="#words">Text</a><a href="#cards">Reveal</a>
 </nav>
 <div id="bar"></div>
 
@@ -123,6 +137,20 @@
   <div class="stick">
     <canvas id="cv" width="900" height="900"></canvas>
     <div class="caption" id="cap">Rotate it. Scroll sets the angle.</div>
+  </div>
+</section>
+
+<section class="stages" id="stages">
+  <div class="stick">
+    <canvas id="cv2" width="900" height="900"></canvas>
+    <div class="stage-text">
+      <h2 data-s="0">Designed to stand out.</h2>
+      <h2 data-s="1">A camera that sees more.</h2>
+      <h2 data-s="2">A display that glows.</h2>
+      <h2 data-s="3">Pick your finish.</h2>
+      <h2 data-s="4">Made to be yours.</h2>
+    </div>
+    <ol class="dots" id="dots"><li></li><li></li><li></li><li></li><li></li></ol>
   </div>
 </section>
 
@@ -158,6 +186,9 @@
   const cap = document.getElementById('cap');
   const bar = document.getElementById('bar');
   const wordsEl = document.getElementById('words');
+  const stagesEl = document.getElementById('stages');
+  const stageHeads = [...document.querySelectorAll('.stage-text h2')];
+  const dots = [...document.querySelectorAll('#dots li')];
 
   /* Split paragraph into word spans */
   const wp = document.getElementById('wordsP');
@@ -167,8 +198,10 @@
   /* Procedural "product" frames: a phone modelled as three layers (back glass,
      frame, display) in 3D. Scroll rotates it a full turn, then pulls the layers
      apart. Swap drawFrame for ctx.drawImage(frames[i]) to use real renders. */
-  const cv = document.getElementById('cv');
-  const ctx = cv.getContext('2d');
+  const cv1 = document.getElementById('cv');
+  const cv2 = document.getElementById('cv2');
+  let cv = cv1, ctx = cv1.getContext('2d');
+  const ctx2 = cv2.getContext('2d');
   const FRAMES = 160;
 
   const PW = 0.5, PH = 1.05, PR = 0.16, PD = 0.07;   // half-width, half-height, corner radius, half-depth
@@ -182,10 +215,11 @@
     });
   const inset = (pts, s) => pts.map(([x, y]) => [x * s, y * s]);
 
-  function makeProjector(ry, rx, scale) {
+  function makeProjector(ry, rx, scale, ox = 0, oy = 0) {
     const cy_ = Math.cos(ry), sy = Math.sin(ry), cx_ = Math.cos(rx), sx = Math.sin(rx);
     const W = cv.width, cx = W / 2, cy = W / 2;
     return (x, y, z) => {
+      x -= ox; y -= oy;
       const x1 = x * cy_ + z * sy, z1 = -x * sy + z * cy_;
       const y2 = y * cx_ - z1 * sx, z2 = y * sx + z1 * cx_;
       const p = 1 / (1 - z2 * 0.18);
@@ -218,22 +252,22 @@
     return g;
   }
 
-  function drawFrame(i) {
-    const t = i / (FRAMES - 1);
-    const spread = easeInOut(clamp(t * 2 - 1));                // second half: pull layers apart
-    const ry = -0.6 + t * Math.PI * 2;                         // one full turn
-    const rx = 0.18 + spread * 0.22;
-    const P = makeProjector(ry, rx, 300 + spread * 40);
-    const gap = spread * 0.55;
+  const DEFAULTS = { ry: -0.6, rx: 0.18, scale: 300, gap: 0, ox: 0, oy: 0,
+                     bh: 225, bs: 12, top: '#ff7a45', bot: '#3b4cff', glow: 0.18 };
+
+  function drawPhone(canvas, c, o) {
+    cv = canvas; ctx = c;
+    const { ry, rx, scale, gap, ox, oy, bh, bs, top, bot, glow } = { ...DEFAULTS, ...o };
+    const P = makeProjector(ry, rx, scale, ox, oy);
 
     const zBack = -PD - gap, zFront = PD + gap;
     const layers = [
       { depth: P(0, 0, zBack)[2], draw: () => {              // back glass
-          poly(P, outline, zBack, gradient(P, zBack, '#3a3f4f', '#16181f'), '#555b6e');
+          poly(P, outline, zBack, gradient(P, zBack, `hsl(${bh} ${bs}% 36%)`, `hsl(${bh} ${bs}% 12%)`), `hsl(${bh} ${bs}% 42%)`);
           poly(P, inset(outline, 0.96), zBack, null, 'rgba(255,255,255,.05)');
           const bx = -PW + 0.33, by = PH - 0.33;                // camera bump
           poly(P, [[bx - .26, by + .26], [bx + .26, by + .26], [bx + .26, by - .26], [bx - .26, by - .26]],
-               zBack - 0.02, '#23262f', '#6a7086');
+               zBack - 0.02, `hsl(${bh} ${bs}% 15%)`, `hsl(${bh} ${bs}% 45%)`);
           [[-.1, .1], [.1, .1], [0, -.1]].forEach(([dx, dy]) => {
             circle(P, bx + dx, by + dy, .085, zBack - 0.03, '#0b0c10');
             circle(P, bx + dx, by + dy, .045, zBack - 0.035, '#2a3a66');
@@ -253,12 +287,12 @@
             ctx.moveTo(front[k][0], front[k][1]); ctx.lineTo(front[j][0], front[j][1]);
             ctx.lineTo(back[j][0], back[j][1]); ctx.lineTo(back[k][0], back[k][1]);
             ctx.closePath();
-            ctx.fillStyle = `rgb(${L},${L + 4},${L + 14})`; ctx.fill();
+            ctx.fillStyle = `hsl(${bh} ${bs}% ${Math.round(L / 2.4)}%)`; ctx.fill();
             ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1; ctx.stroke();
           }
       } },
       { depth: P(0, 0, zFront)[2], draw: () => {             // display
-          poly(P, inset(outline, 0.95), zFront, gradient(P, zFront, '#ff7a45', '#3b4cff'), '#000');
+          poly(P, inset(outline, 0.95), zFront, gradient(P, zFront, top, bot), '#000');
           poly(P, inset(outline, 0.95).map(([x, y]) => [x * 0.9, y * 0.97]), zFront + 0.001,
                gradient(P, zFront, 'rgba(255,255,255,.18)', 'rgba(255,255,255,0)'));
           poly(P, [[-.12, .93], [.12, .93], [.12, .86], [-.12, .86]], zFront + 0.002, '#000');   // island
@@ -272,10 +306,44 @@
     ctx.clearRect(0, 0, cv.width, cv.height);
     const sh = P(0, -PH - 0.25, 0);                             // ground shadow
     const g = ctx.createRadialGradient(cv.width / 2, sh[1] + 20, 10, cv.width / 2, sh[1] + 20, 220);
-    g.addColorStop(0, 'rgba(120,140,255,.18)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    g.addColorStop(0, `rgba(120,140,255,${glow})`); g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, cv.width, cv.height);
 
     layers.sort((a, b) => a.depth - b.depth).forEach(l => l.draw());
+  }
+
+  /* Sequence 1: one scroll-scrubbed frame */
+  function drawFrame(i) {
+    const t = i / (FRAMES - 1);
+    const spread = easeInOut(clamp(t * 2 - 1));                // second half: pull layers apart
+    drawPhone(cv1, cv1.getContext('2d'), {
+      ry: -0.6 + t * Math.PI * 2,                              // one full turn
+      rx: 0.18 + spread * 0.22, scale: 300 + spread * 40, gap: spread * 0.55,
+    });
+  }
+
+  /* Pinned multi-stage section: keyframes describe the phone at the centre of
+     each stage; values are blended between neighbouring stages while you scroll. */
+  const BX = -PW + 0.33, BY = PH - 0.33;                       // camera bump centre
+  const STAGES = [
+    { ry: -0.45, rx: 0.12, scale: 250 },
+    { ry: Math.PI + 0.35, rx: 0.05, scale: 700, ox: BX, oy: BY, glow: 0.05 },
+    { ry: 0.0, rx: 0.0, scale: 270, glow: 0.6, top: '#ffd34e', bot: '#ff2d95' },
+    { ry: Math.PI + 0.7, rx: 0.1, scale: 250, bh: 160, bs: 35, glow: 0.2 },
+    { ry: Math.PI * 2 - 0.5, rx: 0.15, scale: 250, bh: 350, bs: 45, glow: 0.2 },
+  ];
+  const NUM_KEYS = ['ry', 'rx', 'scale', 'ox', 'oy', 'bh', 'bs', 'glow'];
+  const hold = 0.35;                                           // fraction of a stage held still
+  function stageParams(sp) {
+    const f = sp * (STAGES.length - 1);
+    const i = Math.min(Math.floor(f), STAGES.length - 2);
+    const k = clamp((f - i - hold / 2) / (1 - hold));
+    const e = easeInOut(k);
+    const A = { ...DEFAULTS, ...STAGES[i] }, B = { ...DEFAULTS, ...STAGES[i + 1] };
+    const o = {};
+    NUM_KEYS.forEach(n => o[n] = lerp(A[n], B[n], e));
+    o.top = e < .5 ? A.top : B.top; o.bot = e < .5 ? A.bot : B.bot;
+    return o;
   }
 
   let lastFrame = -1;
@@ -290,6 +358,17 @@
     const sp = progress(seq);
     const frame = Math.round(sp * (FRAMES - 1));
     if (frame !== lastFrame) { drawFrame(frame); lastFrame = frame; }
+    /* Pinned stages: blend phone keyframes, cross-fade headlines */
+    const gp = progress(stagesEl);
+    drawPhone(cv2, ctx2, stageParams(gp));
+    const gf = gp * (STAGES.length - 1);
+    stageHeads.forEach((h, n) => {
+      const d = Math.abs(gf - n);
+      h.style.opacity = d <= hold / 2 ? 1 : clamp(1 - (d - hold / 2) / 0.3);
+      h.style.transform = `translateY(${(gf - n) * 24}px)`;
+    });
+    dots.forEach((el, n) => el.classList.toggle('on', Math.round(gf) === n));
+
     const phase = sp < .5 ? 0 : 1;
     cap.textContent = phase ? 'Exploded view, on demand.' : 'Rotate it. Scroll sets the angle.';
     cap.style.opacity = clamp(sp * 6) * (1 - clamp((sp - .92) * 12));
