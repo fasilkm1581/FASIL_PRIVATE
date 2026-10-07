@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scroll Animation Demo</title>
+<style>
+  :root {
+    --bg: #000;
+    --fg: #f5f5f7;
+    --dim: #6e6e73;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Blurred, translucent nav */
+  nav {
+    position: fixed; inset: 0 0 auto 0; height: 48px; z-index: 10;
+    display: flex; align-items: center; justify-content: center; gap: 32px;
+    background: rgba(22, 22, 23, 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    font-size: 12px;
+  }
+  nav a { color: #d2d2d7; text-decoration: none; transition: color .3s; }
+  nav a:hover { color: #fff; }
+
+  section { position: relative; }
+
+  /* 1. Hero: scale + fade driven by scroll */
+  .hero {
+    height: 200vh;
+  }
+  .hero .stick {
+    position: sticky; top: 0; height: 100vh;
+    display: grid; place-items: center; text-align: center; overflow: hidden;
+  }
+  .hero h1 {
+    font-size: clamp(48px, 10vw, 128px); font-weight: 700; letter-spacing: -0.03em;
+    background: linear-gradient(90deg, #ff9a56, #ff3b8b, #7a5cff, #3ec6ff);
+    background-size: 200% 100%;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: shimmer 8s linear infinite;
+    will-change: transform, opacity;
+  }
+  .hero p { color: var(--dim); font-size: 21px; margin-top: 12px; will-change: opacity; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+
+  /* 2. Pinned canvas frame sequence */
+  .sequence { height: 400vh; }
+  .sequence .stick {
+    position: sticky; top: 0; height: 100vh;
+    display: grid; place-items: center;
+  }
+  canvas { width: min(90vw, 720px); aspect-ratio: 1; }
+  .caption {
+    position: absolute; bottom: 12vh; left: 0; right: 0; text-align: center;
+    font-size: clamp(20px, 3vw, 32px); font-weight: 600;
+    will-change: opacity, transform;
+  }
+
+  /* 3. Words that brighten as you scroll */
+  .words { padding: 30vh 10vw; }
+  .words p {
+    max-width: 980px; margin: 0 auto;
+    font-size: clamp(28px, 5vw, 56px); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em;
+  }
+  .words .w { opacity: 0.18; transition: opacity .25s linear; }
+  .words .w.on { opacity: 1; }
+
+  /* 4. Staggered fade-up reveal */
+  .cards {
+    padding: 20vh 6vw; display: grid; gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    max-width: 1100px; margin: 0 auto;
+  }
+  .card {
+    background: #161617; border-radius: 24px; padding: 40px 28px; min-height: 260px;
+    opacity: 0; transform: translateY(48px) scale(.97);
+    transition: opacity .9s var(--ease), transform .9s var(--ease), box-shadow .4s;
+    transition-delay: calc(var(--i) * 120ms);
+  }
+  .card.in { opacity: 1; transform: none; }
+  .card:hover { transform: scale(1.03); box-shadow: 0 20px 60px rgba(122, 92, 255, .25); transition-delay: 0s; }
+  .card h3 { font-size: 28px; margin-bottom: 12px; }
+  .card p { color: var(--dim); font-size: 17px; line-height: 1.4; }
+
+  footer { text-align: center; color: var(--dim); font-size: 12px; padding: 12vh 0 8vh; }
+
+  /* Progress bar */
+  #bar { position: fixed; top: 48px; left: 0; height: 2px; width: 0; background: #2997ff; z-index: 11; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero h1 { animation: none; }
+    .card { opacity: 1; transform: none; transition: none; }
+    .words .w { opacity: 1; transition: none; }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <a href="#hero">Overview</a><a href="#seq">Sequence</a><a href="#words">Text</a><a href="#cards">Reveal</a>
+</nav>
+<div id="bar"></div>
+
+<section class="hero" id="hero">
+  <div class="stick">
+    <div>
+      <h1 id="heroTitle">Scroll.</h1>
+      <p id="heroSub">Animation driven by your fingertips.</p>
+    </div>
+  </div>
+</section>
+
+<section class="sequence" id="seq">
+  <div class="stick">
+    <canvas id="cv" width="900" height="900"></canvas>
+    <div class="caption" id="cap">Frames, scrubbed by scroll.</div>
+  </div>
+</section>
+
+<section class="words" id="words">
+  <p id="wordsP">Every word lights up as you scroll. Opacity tied to position, not time, so the reader sets the pace.</p>
+</section>
+
+<section class="cards" id="cards">
+  <div class="card" style="--i:0"><h3>Pinned</h3><p>Sticky sections hold the stage while content animates through stages.</p></div>
+  <div class="card" style="--i:1"><h3>Scrubbed</h3><p>Progress is a function of scroll offset, so you can play it backwards.</p></div>
+  <div class="card" style="--i:2"><h3>Staggered</h3><p>IntersectionObserver triggers reveals with small offset delays.</p></div>
+</section>
+
+<footer>Demo of scroll-driven animation techniques. Vanilla HTML, CSS and JS.</footer>
+
+<script>
+(() => {
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const easeInOut = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+  /* Progress (0..1) through a pinned section: 0 when its top hits the viewport top,
+     1 when its bottom hits the viewport bottom. */
+  const progress = el => {
+    const r = el.getBoundingClientRect();
+    return clamp(-r.top / (r.height - innerHeight));
+  };
+
+  const hero = document.getElementById('hero');
+  const heroTitle = document.getElementById('heroTitle');
+  const heroSub = document.getElementById('heroSub');
+  const seq = document.getElementById('seq');
+  const cap = document.getElementById('cap');
+  const bar = document.getElementById('bar');
+  const wordsEl = document.getElementById('words');
+
+  /* Split paragraph into word spans */
+  const wp = document.getElementById('wordsP');
+  wp.innerHTML = wp.textContent.trim().split(/\s+/).map(w => `<span class="w">${w}</span>`).join(' ');
+  const words = [...wp.querySelectorAll('.w')];
+
+  /* Procedurally generated "frames": a rotating orb of dots. Stands in for a
+     pre-rendered image sequence (swap drawFrame for ctx.drawImage(frames[i])). */
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const FRAMES = 120;
+  const N = 220;
+  const pts = Array.from({ length: N }, (_, i) => {
+    const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), th = i * Math.PI * (3 - Math.sqrt(5));
+    return [Math.cos(th) * r, y, Math.sin(th) * r];
+  });
+
+  function drawFrame(i) {
+    const t = i / (FRAMES - 1);                 // 0..1
+    const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
+    const spread = easeInOut(clamp(t * 2 - 1)); // second half: explode outward
+    const radius = lerp(W * 0.18, W * 0.2, t) * (1 + spread * 1.1);
+    const rot = t * Math.PI * 4;
+    ctx.clearRect(0, 0, W, H);
+    for (const [x0, y0, z0] of pts) {
+      const x = x0 * Math.cos(rot) + z0 * Math.sin(rot);
+      const z = -x0 * Math.sin(rot) + z0 * Math.cos(rot);
+      const s = 1 / (1.8 - z * 0.6);            // perspective
+      const px = cx + x * radius * s * 2.2, py = cy + y0 * radius * s * 2.2;
+      const hue = 200 + (z + 1) * 80 + t * 120;
+      ctx.fillStyle = `hsla(${hue}, 90%, ${55 + z * 15}%, ${0.35 + (z + 1) * 0.3})`;
+      ctx.beginPath();
+      ctx.arc(px, py, (2 + (z + 1) * 3) * (1 + spread * 0.6), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  let lastFrame = -1;
+  function update() {
+    /* Hero: scale up and fade out as you scroll */
+    const hp = progress(hero);
+    heroTitle.style.transform = `scale(${lerp(1, 2.4, hp)})`;
+    heroTitle.style.opacity = 1 - clamp(hp * 1.6 - 0.2);
+    heroSub.style.opacity = 1 - clamp(hp * 4);
+
+    /* Canvas sequence: map scroll to frame index */
+    const sp = progress(seq);
+    const frame = Math.round(sp * (FRAMES - 1));
+    if (frame !== lastFrame) { drawFrame(frame); lastFrame = frame; }
+    const phase = sp < .5 ? 0 : 1;
+    cap.textContent = phase ? 'Exploded view, on demand.' : 'Frames, scrubbed by scroll.';
+    cap.style.opacity = clamp(sp * 6) * (1 - clamp((sp - .92) * 12));
+    cap.style.transform = `translateY(${(1 - clamp(sp * 6)) * 24}px)`;
+
+    /* Words: light up based on where paragraph sits in viewport */
+    const r = wp.getBoundingClientRect();
+    const wpProg = clamp((innerHeight * 0.85 - r.top) / (innerHeight * 0.55 + r.height));
+    const lit = Math.floor(wpProg * (words.length + 1));
+    words.forEach((w, i) => w.classList.toggle('on', i < lit));
+
+    /* Page progress bar */
+    bar.style.width = (scrollY / (document.documentElement.scrollHeight - innerHeight) * 100) + '%';
+  }
+
+  let ticking = false;
+  addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => { update(); ticking = false; });
+  }, { passive: true });
+  addEventListener('resize', update);
+  update();
+
+  /* Staggered reveal on enter */
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { threshold: 0.25 });
+  document.querySelectorAll('.card').forEach(c => io.observe(c));
+
+  /* Smooth anchor scrolling (respects reduced motion) */
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('nav a').forEach(a => a.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelector(a.getAttribute('href')).scrollIntoView({ behavior: reduce ? 'auto' : 'smooth' });
+  }));
+})();
+</script>
+</body>
+</html>
