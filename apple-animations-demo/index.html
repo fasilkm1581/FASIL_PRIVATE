@@ -122,7 +122,7 @@
 <section class="sequence" id="seq">
   <div class="stick">
     <canvas id="cv" width="900" height="900"></canvas>
-    <div class="caption" id="cap">Frames, scrubbed by scroll.</div>
+    <div class="caption" id="cap">Rotate it. Scroll sets the angle.</div>
   </div>
 </section>
 
@@ -164,35 +164,118 @@
   wp.innerHTML = wp.textContent.trim().split(/\s+/).map(w => `<span class="w">${w}</span>`).join(' ');
   const words = [...wp.querySelectorAll('.w')];
 
-  /* Procedurally generated "frames": a rotating orb of dots. Stands in for a
-     pre-rendered image sequence (swap drawFrame for ctx.drawImage(frames[i])). */
+  /* Procedural "product" frames: a phone modelled as three layers (back glass,
+     frame, display) in 3D. Scroll rotates it a full turn, then pulls the layers
+     apart. Swap drawFrame for ctx.drawImage(frames[i]) to use real renders. */
   const cv = document.getElementById('cv');
   const ctx = cv.getContext('2d');
-  const FRAMES = 120;
-  const N = 220;
-  const pts = Array.from({ length: N }, (_, i) => {
-    const y = 1 - (i / (N - 1)) * 2, r = Math.sqrt(1 - y * y), th = i * Math.PI * (3 - Math.sqrt(5));
-    return [Math.cos(th) * r, y, Math.sin(th) * r];
-  });
+  const FRAMES = 160;
+
+  const PW = 0.5, PH = 1.05, PR = 0.16, PD = 0.07;   // half-width, half-height, corner radius, half-depth
+  const outline = [];                                 // rounded-rect polygon in xy
+  [[PW - PR, PH - PR, 0], [-PW + PR, PH - PR, 1], [-PW + PR, -PH + PR, 2], [PW - PR, -PH + PR, 3]]
+    .forEach(([cx, cy, q]) => {
+      for (let k = 0; k <= 8; k++) {
+        const a = (q + k / 8) * Math.PI / 2;
+        outline.push([cx + Math.cos(a) * PR, cy + Math.sin(a) * PR]);
+      }
+    });
+  const inset = (pts, s) => pts.map(([x, y]) => [x * s, y * s]);
+
+  function makeProjector(ry, rx, scale) {
+    const cy_ = Math.cos(ry), sy = Math.sin(ry), cx_ = Math.cos(rx), sx = Math.sin(rx);
+    const W = cv.width, cx = W / 2, cy = W / 2;
+    return (x, y, z) => {
+      const x1 = x * cy_ + z * sy, z1 = -x * sy + z * cy_;
+      const y2 = y * cx_ - z1 * sx, z2 = y * sx + z1 * cx_;
+      const p = 1 / (1 - z2 * 0.18);
+      return [cx + x1 * scale * p, cy - y2 * scale * p, z2];
+    };
+  }
+
+  function poly(P, pts, z, fill, stroke) {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => {
+      const [sx, sy] = P(x, y, z);
+      i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy);
+    });
+    ctx.closePath();
+    if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+    if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke(); }
+  }
+
+  function circle(P, cx, cy, r, z, fill) {
+    poly(P, Array.from({ length: 20 }, (_, i) => {
+      const a = i / 20 * Math.PI * 2;
+      return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+    }), z, fill);
+  }
+
+  function gradient(P, z, c0, c1) {
+    const a = P(0, PH, z), b = P(0, -PH, z);
+    const g = ctx.createLinearGradient(a[0], a[1], b[0], b[1]);
+    g.addColorStop(0, c0); g.addColorStop(1, c1);
+    return g;
+  }
 
   function drawFrame(i) {
-    const t = i / (FRAMES - 1);                 // 0..1
-    const W = cv.width, H = cv.height, cx = W / 2, cy = H / 2;
-    const spread = easeInOut(clamp(t * 2 - 1)); // second half: explode outward
-    const radius = lerp(W * 0.18, W * 0.2, t) * (1 + spread * 1.1);
-    const rot = t * Math.PI * 4;
-    ctx.clearRect(0, 0, W, H);
-    for (const [x0, y0, z0] of pts) {
-      const x = x0 * Math.cos(rot) + z0 * Math.sin(rot);
-      const z = -x0 * Math.sin(rot) + z0 * Math.cos(rot);
-      const s = 1 / (1.8 - z * 0.6);            // perspective
-      const px = cx + x * radius * s * 2.2, py = cy + y0 * radius * s * 2.2;
-      const hue = 200 + (z + 1) * 80 + t * 120;
-      ctx.fillStyle = `hsla(${hue}, 90%, ${55 + z * 15}%, ${0.35 + (z + 1) * 0.3})`;
-      ctx.beginPath();
-      ctx.arc(px, py, (2 + (z + 1) * 3) * (1 + spread * 0.6), 0, Math.PI * 2);
-      ctx.fill();
-    }
+    const t = i / (FRAMES - 1);
+    const spread = easeInOut(clamp(t * 2 - 1));                // second half: pull layers apart
+    const ry = -0.6 + t * Math.PI * 2;                         // one full turn
+    const rx = 0.18 + spread * 0.22;
+    const P = makeProjector(ry, rx, 300 + spread * 40);
+    const gap = spread * 0.55;
+
+    const zBack = -PD - gap, zFront = PD + gap;
+    const layers = [
+      { depth: P(0, 0, zBack)[2], draw: () => {              // back glass
+          poly(P, outline, zBack, gradient(P, zBack, '#3a3f4f', '#16181f'), '#555b6e');
+          poly(P, inset(outline, 0.96), zBack, null, 'rgba(255,255,255,.05)');
+          const bx = -PW + 0.33, by = PH - 0.33;                // camera bump
+          poly(P, [[bx - .26, by + .26], [bx + .26, by + .26], [bx + .26, by - .26], [bx - .26, by - .26]],
+               zBack - 0.02, '#23262f', '#6a7086');
+          [[-.1, .1], [.1, .1], [0, -.1]].forEach(([dx, dy]) => {
+            circle(P, bx + dx, by + dy, .085, zBack - 0.03, '#0b0c10');
+            circle(P, bx + dx, by + dy, .045, zBack - 0.035, '#2a3a66');
+          });
+          circle(P, 0, 0, .1, zBack, 'rgba(255,255,255,.12)');   // logo
+      } },
+      { depth: P(0, 0, 0)[2], draw: () => {                  // frame: side walls + rim
+          const z0 = zBack * 0.2 - PD * 0.8, z1 = zFront * 0.2 + PD * 0.8;
+          const front = outline.map(([x, y]) => P(x, y, z1)), back = outline.map(([x, y]) => P(x, y, z0));
+          const n = outline.length;
+          for (let k = 0; k < n; k++) {
+            const j = (k + 1) % n;
+            const nx = (outline[k][0] + outline[j][0]) / 2, ny = (outline[k][1] + outline[j][1]) / 2;
+            const lit = 0.5 + 0.5 * Math.cos(Math.atan2(ny, nx) - ry * 0.6);
+            const L = Math.round(30 + lit * 55);
+            ctx.beginPath();
+            ctx.moveTo(front[k][0], front[k][1]); ctx.lineTo(front[j][0], front[j][1]);
+            ctx.lineTo(back[j][0], back[j][1]); ctx.lineTo(back[k][0], back[k][1]);
+            ctx.closePath();
+            ctx.fillStyle = `rgb(${L},${L + 4},${L + 14})`; ctx.fill();
+            ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1; ctx.stroke();
+          }
+      } },
+      { depth: P(0, 0, zFront)[2], draw: () => {             // display
+          poly(P, inset(outline, 0.95), zFront, gradient(P, zFront, '#ff7a45', '#3b4cff'), '#000');
+          poly(P, inset(outline, 0.95).map(([x, y]) => [x * 0.9, y * 0.97]), zFront + 0.001,
+               gradient(P, zFront, 'rgba(255,255,255,.18)', 'rgba(255,255,255,0)'));
+          poly(P, [[-.12, .93], [.12, .93], [.12, .86], [-.12, .86]], zFront + 0.002, '#000');   // island
+          for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++)                              // app icons
+            poly(P, [[-.32 + c * .22, .55 - r * .22], [-.14 + c * .22, .55 - r * .22],
+                     [-.14 + c * .22, .37 - r * .22], [-.32 + c * .22, .37 - r * .22]],
+                 zFront + 0.002, 'rgba(255,255,255,.28)');
+      } },
+    ];
+
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const sh = P(0, -PH - 0.25, 0);                             // ground shadow
+    const g = ctx.createRadialGradient(cv.width / 2, sh[1] + 20, 10, cv.width / 2, sh[1] + 20, 220);
+    g.addColorStop(0, 'rgba(120,140,255,.18)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cv.width, cv.height);
+
+    layers.sort((a, b) => a.depth - b.depth).forEach(l => l.draw());
   }
 
   let lastFrame = -1;
@@ -208,7 +291,7 @@
     const frame = Math.round(sp * (FRAMES - 1));
     if (frame !== lastFrame) { drawFrame(frame); lastFrame = frame; }
     const phase = sp < .5 ? 0 : 1;
-    cap.textContent = phase ? 'Exploded view, on demand.' : 'Frames, scrubbed by scroll.';
+    cap.textContent = phase ? 'Exploded view, on demand.' : 'Rotate it. Scroll sets the angle.';
     cap.style.opacity = clamp(sp * 6) * (1 - clamp((sp - .92) * 12));
     cap.style.transform = `translateY(${(1 - clamp(sp * 6)) * 24}px)`;
 
